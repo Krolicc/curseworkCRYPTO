@@ -1,0 +1,245 @@
+services:
+  frontend:
+    container_name: VueJS
+    build:
+      context: ./wism
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    networks:
+      frontend_with_backend:
+      frontend_with_chatBackend:
+
+  backend:
+    container_name: Backend
+    build:
+      context: ./back
+      dockerfile: Dockerfile
+    volumes:
+      - ./back/alembic:/app/alembic
+      - ./back/core:/app/core
+      - ./back/api:/app/api
+    environment:
+      MONGO_DB_URL: mongodb://admin:admin@mongodb:27017/
+      MONGO_DB_NAME: test
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8000:8000"
+    depends_on:
+      database:
+        condition: service_started
+#      mongodb:
+#        condition: service_healthy
+#      elasticsearch:
+#        condition: service_healthy
+#      kafka:
+#        condition: service_started
+    networks:
+      frontend_with_backend:
+      backend_with_database:
+#      backend_with_elasticsearch:
+#      backend_with_redis:
+#      backend_with_kafka:
+
+  chat_backend:
+    container_name: ChatBackend
+    build:
+      context: ./WebSocketBackend
+      dockerfile: Dockerfile
+    volumes:
+      - ./WebSocketBackend/core:/app/core
+      - ./WebSocketBackend/api:/app/api
+    ports:
+      - "8005:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      frontend_with_chatBackend:
+      chatBackend_with_MongoDB:
+
+  database:
+    container_name: DBasePG
+    image: postgres:latest
+    restart: always
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: manga
+    ports:
+      - "5432:5432"
+    networks:
+      backend_with_database:
+      pgAdmin_with_postgreSQL:
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  adminPanel:
+    container_name: Admin
+    image: dpage/pgadmin4:latest
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      - database
+    networks:
+      pgAdmin_with_postgreSQL:
+
+  mongodb:
+    container_name: MongoDB
+    image: mongo:latest
+    healthcheck:
+      test: [ "CMD", "mongosh", "--eval", "db.adminCommand({ping: 1})" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      chatBackend_with_MongoDB:
+      mongoExpress_with_mongoDB:
+
+  mongo-express:
+    container_name: MongoExpress
+    image: mongo-express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+      ME_CONFIG_BASICAUTH_USERNAME: mongo
+      ME_CONFIG_BASICAUTH_PASSWORD: mongo
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      mongoExpress_with_mongoDB:
+
+#  elasticsearch:
+#    container_name: Elasticsearch
+#    image: elasticsearch:7.17.28
+#    environment:
+#      - discovery.type=single-node
+#      - xpack.security.enabled=false # Отключаем безопасность для простоты, но для продакшена лучше включить
+#      - "ES_JAVA_OPTS=-Xms512m -Xmx512m" # Ограничиваем использование памяти
+#    volumes:
+#      - elasticsearch_data:/usr/share/elasticsearch/data
+#    ports:
+#      - "9200:9200"
+#      - "9300:9300"
+#    healthcheck:
+#      test: [ "CMD-SHELL", "curl -f http://localhost:9200/_cat/health?h=st" ]
+#      interval: 10s
+#      timeout: 10s
+#      retries: 5
+#      start_period: 10s
+#    networks:
+#      backend_with_elasticsearch:
+#
+#  kibana:
+#    container_name: Kibana
+#    image: kibana:7.17.28 # соответствовать Elasticsearch
+#    environment:
+#      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+#    ports:
+#      - "5601:5601"
+#    depends_on:
+#      elasticsearch:
+#        condition: service_healthy
+#    networks:
+#      backend_with_elasticsearch:
+
+#  redis:
+#    image: redis:7.2
+#    container_name: Redis
+#    ports:
+#      - "6379:6379"
+#    volumes:
+#      - redis_data:/data
+#    restart: unless-stopped
+#    networks:
+#      backend_with_redis:
+
+#  zookeeper:
+#    container_name: Zookeeper
+#    image: confluentinc/cp-zookeeper:7.5.0
+#    hostname: zookeeper
+#    ports:
+#      - "2181:2181"
+#    environment:
+#      ZOOKEEPER_CLIENT_PORT: 2181
+#      ZOOKEEPER_TICK_TIME: 2000
+#    healthcheck:
+#      test: [ "CMD", "bash", "-c", "echo stat | nc localhost 2181" ]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 5
+#    networks:
+#      kafka_with_zookeeper:
+#
+#  kafka:
+#    container_name: Kafka
+#    image: confluentinc/cp-kafka:7.5.0
+#    ports:
+#      - "9092:9092"
+#    environment:
+#      KAFKA_BROKER_ID: 1
+#      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#      KAFKA_LISTENERS: INTERNAL://localhost:9093,PLAINTEXT://kafka:9092
+#      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+#      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+#      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+#    depends_on:
+#      zookeeper:
+#        condition: service_healthy
+#    networks:
+#      frontend_with_chatKafka:
+#      kafka_with_zookeeper:
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  mongo_data:
+#  elasticsearch_data:
+#  redis_data:
+
+networks:
+  frontend_with_backend:
+    driver: bridge
+  chatBackend_with_MongoDB:
+    driver: bridge
+  backend_with_database:
+    driver: bridge
+  pgAdmin_with_postgreSQL:
+    driver: bridge
+  frontend_with_chatBackend:
+    driver: bridge
+  mongoExpress_with_mongoDB:
+    driver: bridge
+#  backend_with_elasticsearch:
+#    driver: bridge
+#  backend_with_redis:
+#    driver: bridge
+#  backend_with_kafka:
+#    driver: bridge
+#  kafka_with_zookeeper:
+#    driver: bridge
+
